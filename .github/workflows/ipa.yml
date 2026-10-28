@@ -128,7 +128,12 @@ jobs:
         run: |
           set -euo pipefail
           releases=$(gh api "repos/$GH_REPO/releases?per_page=100")
-          asset_id=$(jq -r '[.[] | select(((.name // "") + " " + .tag_name) | ascii_downcase | contains("build input") or contains("build-input")) | .assets[] | select(if env.IPA_NAME == "" then (.name | ascii_downcase | endswith(".ipa")) else .name == env.IPA_NAME end) | .id][0] // empty' <<< "$releases")
+          pick='.assets[] | select(if env.IPA_NAME == "" then (.name | ascii_downcase | endswith(".ipa")) and (.name | startswith("YouMod_") | not) else .name == env.IPA_NAME end) | .id'
+          asset_id=$(jq -r "[.[] | select(((.name // \"\") + \" \" + .tag_name) | ascii_downcase | contains(\"build input\") or contains(\"build-input\")) | $pick][0] // empty" <<< "$releases")
+          if [ -z "$asset_id" ]; then
+            # Fall back to any draft release holding a source IPA (not a YouMod build output)
+            asset_id=$(jq -r "[.[] | select(.draft) | $pick][0] // empty" <<< "$releases")
+          fi
           if [ -z "$asset_id" ]; then
             echo "Releases visible to this workflow (name | tag | draft | assets):"
             jq -r '.[] | "  \(.name // "") | \(.tag_name) | draft=\(.draft) | \([.assets[] | "\(.name) (\(.state))"] | join(", "))"' <<< "$releases"
