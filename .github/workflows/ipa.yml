@@ -127,9 +127,12 @@ jobs:
           IPA_NAME: ${{ inputs.ipa_name }}
         run: |
           set -euo pipefail
-          asset_id=$(gh api "repos/$GH_REPO/releases?per_page=100" --jq '[.[] | select(.draft == true and (.name | contains("Build input"))) | .assets[] | select(if env.IPA_NAME == "" then (.name | endswith(".ipa")) else .name == env.IPA_NAME end) | .id][0]')
-          if [ -z "$asset_id" ] || [ "$asset_id" = "null" ]; then
-            echo "::error::No IPA found in a draft release named 'Build input'. Upload the decrypted IPA there or provide ipa_url."
+          releases=$(gh api "repos/$GH_REPO/releases?per_page=100")
+          asset_id=$(jq -r '[.[] | select(((.name // "") + " " + .tag_name) | ascii_downcase | contains("build input") or contains("build-input")) | .assets[] | select(if env.IPA_NAME == "" then (.name | ascii_downcase | endswith(".ipa")) else .name == env.IPA_NAME end) | .id][0] // empty' <<< "$releases")
+          if [ -z "$asset_id" ]; then
+            echo "Releases visible to this workflow (name | tag | draft | assets):"
+            jq -r '.[] | "  \(.name // "") | \(.tag_name) | draft=\(.draft) | \([.assets[] | "\(.name) (\(.state))"] | join(", "))"' <<< "$releases"
+            echo "::error::No IPA found in a release whose name or tag contains 'Build input'. Upload the decrypted IPA there or provide ipa_url."
             exit 1
           fi
           gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" > youtube.ipa
