@@ -13,9 +13,15 @@ on:
         default: 'main'
 
       ipa_url:
-        description: "URL to the decrypted IPA file"
+        description: "URL to the decrypted IPA file (leave empty to use the 'Build input' draft release)"
         default: ""
-        required: true
+        required: false
+        type: string
+
+      ipa_name:
+        description: "IPA filename in the 'Build input' draft release (empty = first .ipa)"
+        default: ""
+        required: false
         type: string
 
       display_name:
@@ -111,8 +117,23 @@ jobs:
       - name: Hide Sensitive Inputs
         uses: levibostian/action-hide-sensitive-inputs@v1
         with:
-          exclude_inputs: bundle_id,display_name,youpip,ytuhd,ryd,abconfig,ytweaks,youslider,gonerino,demc,volboost,repo,branch,youquality
-          
+          exclude_inputs: bundle_id,display_name,youpip,ytuhd,ryd,abconfig,ytweaks,youslider,gonerino,demc,volboost,repo,branch,youquality,ipa_name
+
+      - name: Download IPA from draft release
+        if: ${{ inputs.ipa_url == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IPA_NAME: ${{ inputs.ipa_name }}
+        run: |
+          set -euo pipefail
+          asset_id=$(gh api "repos/$GH_REPO/releases?per_page=100" --jq '[.[] | select(.draft == true and (.name | contains("Build input"))) | .assets[] | select(if env.IPA_NAME == "" then (.name | endswith(".ipa")) else .name == env.IPA_NAME end) | .id][0]')
+          if [ -z "$asset_id" ] || [ "$asset_id" = "null" ]; then
+            echo "::error::No IPA found in a draft release named 'Build input'. Upload the decrypted IPA there or provide ipa_url."
+            exit 1
+          fi
+          gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" > youtube.ipa
+
       - name: Install MEGA downloader
         if: ${{ startsWith(inputs.ipa_url, 'https://mega.nz/') }}
         run: brew install megatools
@@ -125,7 +146,7 @@ jobs:
           megadl --no-progress --path youtube.ipa "$IPA_URL"
 
       - name: Download IPA from direct URL
-        if: ${{ !startsWith(inputs.ipa_url, 'https://mega.nz/') }}
+        if: ${{ inputs.ipa_url != '' && !startsWith(inputs.ipa_url, 'https://mega.nz/') }}
         env:
           IPA_URL: ${{ inputs.ipa_url }}
         run: |
